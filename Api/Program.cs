@@ -5,8 +5,13 @@ using Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// La cadena de conexión vive en appsettings.json (sección ConnectionStrings), no dentro del código.
+string cadenaConexion = builder.Configuration.GetConnectionString("TallerMultimarca")
+    ?? throw new InvalidOperationException("Falta la cadena de conexión 'TallerMultimarca' en appsettings.json.");
+
+
 // Composición: la API registra las dos capas de abajo, pero los controladores solo conocen interfaces de servicio.
-builder.Services.AddData();
+builder.Services.AddData(cadenaConexion);
 builder.Services.AddBusiness();
 
 builder.Services

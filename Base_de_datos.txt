@@ -1,0 +1,260 @@
+ CREATE DATABASE TallerMultimarca;
+GO
+ 
+USE TallerMultimarca;
+GO
+ 
+-- Necesarios para el índice filtrado de más abajo (SSMS ya los trae activados).
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+ 
+/* ---------------------------------------------------------------------
+   SECUENCIAS: generan los números de cliente, moto y orden.
+   La aplicación pide el siguiente número antes de crear el objeto.
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.seq_Clientes', N'SO') IS NULL
+    CREATE SEQUENCE dbo.seq_Clientes AS INT START WITH 1 INCREMENT BY 1;
+IF OBJECT_ID(N'dbo.seq_Motocicletas', N'SO') IS NULL
+    CREATE SEQUENCE dbo.seq_Motocicletas AS INT START WITH 1 INCREMENT BY 1;
+IF OBJECT_ID(N'dbo.seq_Ordenes', N'SO') IS NULL
+    CREATE SEQUENCE dbo.seq_Ordenes AS INT START WITH 1 INCREMENT BY 1;
+GO
+ 
+/* ---------------------------------------------------------------------
+   CLIENTES
+   Una sola tabla para los tres tipos. Las columnas propias de cada tipo valen NULL
+   en los demás (cupo y saldo solo para Flota, descuento solo para Convenio).
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.Clientes', N'U') IS NULL
+CREATE TABLE dbo.Clientes
+(
+    Id                     INT            NOT NULL,
+    Documento              NVARCHAR(30)   NOT NULL,
+    Nombre                 NVARCHAR(150)  NOT NULL,
+    Telefono               NVARCHAR(30)   NOT NULL CONSTRAINT DF_Clientes_Telefono DEFAULT N'',
+    Correo                 NVARCHAR(150)  NOT NULL CONSTRAINT DF_Clientes_Correo DEFAULT N'',
+    Tipo                   NVARCHAR(20)   NOT NULL,
+    CupoCredito            DECIMAL(18,2)  NULL,
+    MontoAutorizado        DECIMAL(18,2)  NULL,
+    SaldoUtilizado         DECIMAL(18,2)  NULL,
+    TieneFacturasVencidas  BIT            NULL,
+    DescuentoNegociado     DECIMAL(5,4)   NULL,
+    CONSTRAINT PK_Clientes PRIMARY KEY (Id),
+    CONSTRAINT UQ_Clientes_Documento UNIQUE (Documento),
+    CONSTRAINT CK_Clientes_Tipo CHECK (Tipo IN (N'Particular', N'Flota', N'Convenio')),
+    CONSTRAINT CK_Clientes_CamposPorTipo CHECK
+    (
+        Tipo = N'Particular'
+        OR (Tipo = N'Flota' AND CupoCredito IS NOT NULL AND MontoAutorizado IS NOT NULL
+                            AND SaldoUtilizado IS NOT NULL AND TieneFacturasVencidas IS NOT NULL)
+        OR (Tipo = N'Convenio' AND DescuentoNegociado IS NOT NULL AND DescuentoNegociado BETWEEN 0.15 AND 0.25)
+    )
+);
+GO
+ 
+/* ---------------------------------------------------------------------
+   MOTOCICLETAS
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.Motocicletas', N'U') IS NULL
+CREATE TABLE dbo.Motocicletas
+(
+    Id           INT           NOT NULL,
+    Placa        NVARCHAR(10)  NOT NULL,
+    Marca        NVARCHAR(60)  NOT NULL,
+    Modelo       NVARCHAR(60)  NOT NULL,
+    Cilindraje   INT           NOT NULL,
+    Kilometraje  INT           NOT NULL,
+    ClienteId    INT           NOT NULL,
+    CONSTRAINT PK_Motocicletas PRIMARY KEY (Id),
+    CONSTRAINT UQ_Motocicletas_Placa UNIQUE (Placa),
+    CONSTRAINT CK_Motocicletas_Cilindraje CHECK (Cilindraje > 0),
+    CONSTRAINT CK_Motocicletas_Kilometraje CHECK (Kilometraje >= 0),
+    CONSTRAINT FK_Motocicletas_Clientes FOREIGN KEY (ClienteId) REFERENCES dbo.Clientes (Id)
+);
+GO
+ 
+/* ---------------------------------------------------------------------
+   MECÁNICOS
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.Mecanicos', N'U') IS NULL
+CREATE TABLE dbo.Mecanicos
+(
+    Id             INT            NOT NULL,
+    Nombre         NVARCHAR(100)  NOT NULL,
+    Nivel          NVARCHAR(20)   NOT NULL,
+    TarifaPorHora  DECIMAL(18,2)  NOT NULL,
+    Disponible     BIT            NOT NULL CONSTRAINT DF_Mecanicos_Disponible DEFAULT 1,
+    CONSTRAINT PK_Mecanicos PRIMARY KEY (Id),
+    CONSTRAINT CK_Mecanicos_Nivel CHECK (Nivel IN (N'Aprendiz', N'General', N'Especialista')),
+    CONSTRAINT CK_Mecanicos_Tarifa CHECK (TarifaPorHora >= 0)
+);
+GO
+ 
+/* ---------------------------------------------------------------------
+   SERVICIOS (catálogo): Preventivo, Correctivo o AjusteRapido
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.Servicios', N'U') IS NULL
+CREATE TABLE dbo.Servicios
+(
+    Codigo              NVARCHAR(20)   NOT NULL,
+    Tipo                NVARCHAR(20)   NOT NULL,
+    Nombre              NVARCHAR(150)  NOT NULL,
+    Descripcion         NVARCHAR(300)  NOT NULL,
+    MinutosEstimados    INT            NOT NULL,
+    NivelRequerido      NVARCHAR(20)   NOT NULL,
+    KilometrajeObjetivo INT            NULL,
+    CONSTRAINT PK_Servicios PRIMARY KEY (Codigo),
+    CONSTRAINT CK_Servicios_Tipo CHECK (Tipo IN (N'Preventivo', N'Correctivo', N'AjusteRapido')),
+    CONSTRAINT CK_Servicios_Minutos CHECK (MinutosEstimados > 0),
+    CONSTRAINT CK_Servicios_Nivel CHECK (NivelRequerido IN (N'Aprendiz', N'General', N'Especialista')),
+    CONSTRAINT CK_Servicios_Preventivo CHECK (Tipo <> N'Preventivo' OR (KilometrajeObjetivo IS NOT NULL AND KilometrajeObjetivo > 0)),
+    CONSTRAINT CK_Servicios_AjusteRapido CHECK (Tipo <> N'AjusteRapido' OR MinutosEstimados < 30)
+);
+GO
+ 
+/* ---------------------------------------------------------------------
+   REPUESTOS (inventario)
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.Repuestos', N'U') IS NULL
+CREATE TABLE dbo.Repuestos
+(
+    Codigo                           NVARCHAR(20)   NOT NULL,
+    Nombre                           NVARCHAR(150)  NOT NULL,
+    PrecioCosto                      DECIMAL(18,2)  NOT NULL,
+    PrecioVenta                      DECIMAL(18,2)  NOT NULL,
+    CantidadStock                    INT            NOT NULL,
+    StockMinimo                      INT            NOT NULL,
+    UnidadesVendidasUltimoTrimestre  INT            NOT NULL CONSTRAINT DF_Repuestos_Unidades DEFAULT 0,
+    Origen                           NVARCHAR(20)   NOT NULL,
+    CONSTRAINT PK_Repuestos PRIMARY KEY (Codigo),
+    CONSTRAINT CK_Repuestos_Precios CHECK (PrecioCosto >= 0 AND PrecioVenta >= 0),
+    CONSTRAINT CK_Repuestos_Stock CHECK (CantidadStock >= 0 AND StockMinimo >= 0),
+    CONSTRAINT CK_Repuestos_Origen CHECK (Origen IN (N'BodegaLocal', N'Medellin', N'Importado'))
+);
+GO
+ 
+/* ---------------------------------------------------------------------
+   ÓRDENES DE TRABAJO
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.OrdenesTrabajo', N'U') IS NULL
+CREATE TABLE dbo.OrdenesTrabajo
+(
+    Id                          INT            NOT NULL,
+    ClienteId                   INT            NOT NULL,
+    MotocicletaId               INT            NOT NULL,
+    KilometrajeIngreso          INT            NOT NULL,
+    FechaIngreso                DATETIME2      NOT NULL,
+    NumeroAutorizacionExterna   NVARCHAR(50)   NULL,
+    Estado                      NVARCHAR(30)   NOT NULL,
+    FechaCotizacion             DATETIME2      NULL,
+    FechaEntregaPrometida       DATETIME2      NULL,
+    FechaEntregaReal            DATETIME2      NULL,
+    ValorTotal                  DECIMAL(18,2)  NOT NULL CONSTRAINT DF_Ordenes_ValorTotal DEFAULT 0,
+    CotizacionDesactualizada    BIT            NOT NULL CONSTRAINT DF_Ordenes_Desactualizada DEFAULT 0,
+    CONSTRAINT PK_OrdenesTrabajo PRIMARY KEY (Id),
+    CONSTRAINT FK_Ordenes_Clientes FOREIGN KEY (ClienteId) REFERENCES dbo.Clientes (Id),
+    CONSTRAINT FK_Ordenes_Motocicletas FOREIGN KEY (MotocicletaId) REFERENCES dbo.Motocicletas (Id),
+    CONSTRAINT CK_Ordenes_Kilometraje CHECK (KilometrajeIngreso > 0),
+    CONSTRAINT CK_Ordenes_Estado CHECK (Estado IN (N'Recibida', N'EnDiagnostico', N'Cotizada', N'Autorizada', N'EnEjecucion',
+                                                   N'EnEsperaDeRepuesto', N'Terminada', N'Entregada', N'CerradaSinEjecutar'))
+);
+GO
+ 
+-- Regla del negocio también en la base de datos: una moto no puede tener dos órdenes abiertas a la vez.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Ordenes_MotocicletaAbierta' AND object_id = OBJECT_ID(N'dbo.OrdenesTrabajo'))
+    CREATE UNIQUE INDEX UX_Ordenes_MotocicletaAbierta
+        ON dbo.OrdenesTrabajo (MotocicletaId)
+        WHERE Estado <> N'Entregada' AND Estado <> N'CerradaSinEjecutar';
+GO
+ 
+/* ---------------------------------------------------------------------
+   LÍNEAS DE SERVICIO (cada servicio de una orden, con su mecánico)
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.LineasServicio', N'U') IS NULL
+CREATE TABLE dbo.LineasServicio
+(
+    OrdenId            INT            NOT NULL,
+    LineaId            INT            NOT NULL,
+    ServicioCodigo     NVARCHAR(20)   NOT NULL,
+    MecanicoId         INT            NOT NULL,
+    Diagnostico        NVARCHAR(MAX)  NOT NULL CONSTRAINT DF_Lineas_Diagnostico DEFAULT N'',
+    Autorizada         BIT            NOT NULL,
+    FechaAutorizacion  DATETIME2      NULL,
+    FechaEjecucion     DATETIME2      NULL,
+    CONSTRAINT PK_LineasServicio PRIMARY KEY (OrdenId, LineaId),
+    CONSTRAINT FK_Lineas_Ordenes FOREIGN KEY (OrdenId) REFERENCES dbo.OrdenesTrabajo (Id) ON DELETE CASCADE,
+    CONSTRAINT FK_Lineas_Servicios FOREIGN KEY (ServicioCodigo) REFERENCES dbo.Servicios (Codigo),
+    CONSTRAINT FK_Lineas_Mecanicos FOREIGN KEY (MecanicoId) REFERENCES dbo.Mecanicos (Id)
+);
+GO
+ 
+/* ---------------------------------------------------------------------
+   USOS DE REPUESTO (repuestos de cada línea, con el precio del momento)
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.UsosRepuesto', N'U') IS NULL
+CREATE TABLE dbo.UsosRepuesto
+(
+    OrdenId              INT            NOT NULL,
+    LineaId              INT            NOT NULL,
+    Item                 INT            NOT NULL,
+    RepuestoCodigo       NVARCHAR(20)   NOT NULL,
+    Cantidad             INT            NOT NULL,
+    PrecioVentaUnitario  DECIMAL(18,2)  NOT NULL,
+    Descontado           BIT            NOT NULL,
+    CONSTRAINT PK_UsosRepuesto PRIMARY KEY (OrdenId, LineaId, Item),
+    CONSTRAINT FK_Usos_Lineas FOREIGN KEY (OrdenId, LineaId) REFERENCES dbo.LineasServicio (OrdenId, LineaId) ON DELETE CASCADE,
+    CONSTRAINT FK_Usos_Repuestos FOREIGN KEY (RepuestoCodigo) REFERENCES dbo.Repuestos (Codigo),
+    CONSTRAINT CK_Usos_Cantidad CHECK (Cantidad > 0)
+);
+GO
+ 
+/* ---------------------------------------------------------------------
+   GARANTÍAS (una por servicio entregado, si la familia del servicio la tiene)
+   --------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.Garantias', N'U') IS NULL
+CREATE TABLE dbo.Garantias
+(
+    OrdenId             INT            NOT NULL,
+    LineaId             INT            NOT NULL,
+    GarantiaId          INT            NOT NULL,
+    FechaInicio         DATETIME2      NOT NULL,
+    FechaVencimiento    DATETIME2      NOT NULL,
+    KilometrajeInicio   INT            NOT NULL,
+    KilometrajeLimite   INT            NOT NULL,
+    Condiciones         NVARCHAR(200)  NOT NULL,
+    Anulada             BIT            NOT NULL CONSTRAINT DF_Garantias_Anulada DEFAULT 0,
+    MotivoAnulacion     NVARCHAR(200)  NULL,
+    CONSTRAINT PK_Garantias PRIMARY KEY (OrdenId, LineaId, GarantiaId),
+    CONSTRAINT FK_Garantias_Lineas FOREIGN KEY (OrdenId, LineaId) REFERENCES dbo.LineasServicio (OrdenId, LineaId) ON DELETE CASCADE
+);
+GO
+ 
+/* ---------------------------------------------------------------------
+   DATOS INICIALES DEL CATÁLOGO (mecánicos, servicios y repuestos)
+   Solo se insertan si las tablas están vacías.
+   --------------------------------------------------------------------- */
+IF NOT EXISTS (SELECT 1 FROM dbo.Mecanicos)
+    INSERT INTO dbo.Mecanicos (Id, Nombre, Nivel, TarifaPorHora, Disponible) VALUES
+        (1, N'Carlos Gómez',  N'General',      40000, 1),
+        (2, N'Ana Restrepo',  N'Especialista', 60000, 1),
+        (3, N'Luis Pérez',    N'Aprendiz',     25000, 1);
+GO
+ 
+IF NOT EXISTS (SELECT 1 FROM dbo.Servicios)
+    INSERT INTO dbo.Servicios (Codigo, Tipo, Nombre, Descripcion, MinutosEstimados, NivelRequerido, KilometrajeObjetivo) VALUES
+        (N'PREV-01', N'Preventivo',   N'Mantenimiento preventivo', N'Aceite, filtros y revisión general',             90,  N'General',      5000),
+        (N'COR-01',  N'Correctivo',   N'Reparación de frenos',     N'Revisión y reparación del sistema de frenos',    120, N'Especialista', NULL),
+        (N'COR-02',  N'Correctivo',   N'Reparación de motor',      N'Reparación mayor de motor',                      960, N'Especialista', NULL),
+        (N'AJU-01',  N'AjusteRapido', N'Ajuste rápido',            N'Ajuste menor sin garantía',                      15,  N'Aprendiz',     NULL);
+GO
+ 
+IF NOT EXISTS (SELECT 1 FROM dbo.Repuestos)
+    INSERT INTO dbo.Repuestos (Codigo, Nombre, PrecioCosto, PrecioVenta, CantidadStock, StockMinimo, UnidadesVendidasUltimoTrimestre, Origen) VALUES
+        (N'ACE-01', N'Aceite 4T',           18000, 25000, 30, 5, 20, N'BodegaLocal'),
+        (N'FIL-01', N'Filtro de aceite',     9000, 14000,  2, 5,  4, N'Medellin'),
+        (N'PAS-01', N'Pastillas de freno',  30000, 45000,  0, 3,  0, N'Importado');
+GO
+ 
+PRINT N'Base de datos TallerMultimarca lista. :D';
+GO

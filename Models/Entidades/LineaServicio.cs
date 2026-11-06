@@ -38,6 +38,30 @@ namespace Models.Entidades
             Autorizada = !servicio.RequiereAutorizacion;
         }
 
+        // Solo para reconstruir desde la base de datos. No revalida al mecánico: si hoy está incapacitado,
+        // la línea que ya existía no deja de existir.
+        private LineaServicio(int id, Servicio servicio, Mecanico mecanico, string diagnostico, bool autorizada,
+                              DateTime? fechaAutorizacion, DateTime? fechaEjecucion)
+        {
+            Id = id;
+            Servicio = servicio;
+            Mecanico = mecanico;
+            Diagnostico = diagnostico;
+            Autorizada = autorizada;
+            FechaAutorizacion = fechaAutorizacion;
+            FechaEjecucion = fechaEjecucion;
+        }
+
+        public static LineaServicio Restaurar(int id, Servicio servicio, Mecanico mecanico, string diagnostico, bool autorizada,
+                                              DateTime? fechaAutorizacion, DateTime? fechaEjecucion,
+                                              IEnumerable<UsoRepuesto> repuestos, IEnumerable<Garantia> garantias)
+        {
+            var linea = new LineaServicio(id, servicio, mecanico, diagnostico, autorizada, fechaAutorizacion, fechaEjecucion);
+            linea._repuestos.AddRange(repuestos);
+            linea._garantias.AddRange(garantias);
+            return linea;
+        }
+
         public void RegistrarDiagnostico(string diagnostico)
         {
             if (string.IsNullOrWhiteSpace(diagnostico))

@@ -40,6 +40,7 @@ namespace Models.Entidades
         public EstadoOrden Estado { get; private set; } = EstadoOrden.Recibida;
         public decimal ValorTotal { get; private set; }
         public IReadOnlyList<LineaServicio> Lineas => _lineas;
+        public bool CotizacionDesactualizada => _cotizacionDesactualizada;
         public bool EstaAbierta => Estado is not (EstadoOrden.Entregada or EstadoOrden.CerradaSinEjecutar);
 
         public OrdenDeTrabajo(int id, int clienteId, int motocicletaId, int kilometrajeIngreso, DateTime fechaIngreso, string? numeroAutorizacionExterna = null)
@@ -53,6 +54,28 @@ namespace Models.Entidades
             KilometrajeIngreso = kilometrajeIngreso;
             FechaIngreso = fechaIngreso;
             NumeroAutorizacionExterna = string.IsNullOrWhiteSpace(numeroAutorizacionExterna) ? null : numeroAutorizacionExterna.Trim();
+        }
+
+        /// <summary>
+        /// Reconstruye una orden tal como quedó guardada en la base de datos (estado, valores y líneas).
+        /// Es la única forma de poner el estado desde afuera, y solo debe usarla la capa de datos.
+        /// </summary>
+        public static OrdenDeTrabajo Restaurar(int id, int clienteId, int motocicletaId, int kilometrajeIngreso, DateTime fechaIngreso,
+            string? numeroAutorizacionExterna, EstadoOrden estado, decimal valorTotal, DateTime? fechaCotizacion,
+            DateTime? fechaEntregaPrometida, DateTime? fechaEntregaReal, bool cotizacionDesactualizada,
+            IEnumerable<LineaServicio> lineas)
+        {
+            var orden = new OrdenDeTrabajo(id, clienteId, motocicletaId, kilometrajeIngreso, fechaIngreso, numeroAutorizacionExterna)
+            {
+                Estado = estado,
+                ValorTotal = valorTotal,
+                FechaCotizacion = fechaCotizacion,
+                FechaEntregaPrometida = fechaEntregaPrometida,
+                FechaEntregaReal = fechaEntregaReal,
+                _cotizacionDesactualizada = cotizacionDesactualizada
+            };
+            orden._lineas.AddRange(lineas);
+            return orden;
         }
 
         // ---------------------------------------------------------------- armado

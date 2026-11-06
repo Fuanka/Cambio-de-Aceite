@@ -30,6 +30,18 @@ namespace Models.Entidades
             PrecioVentaUnitario = repuesto.PrecioVenta;
         }
 
+        // Solo para reconstruir desde la base de datos: conserva el precio y el estado que se guardaron.
+        private UsoRepuesto(Repuesto repuesto, int cantidad, decimal precioVentaUnitario, bool descontado)
+        {
+            Repuesto = repuesto;
+            Cantidad = cantidad;
+            PrecioVentaUnitario = precioVentaUnitario;
+            Descontado = descontado;
+        }
+
+        public static UsoRepuesto Restaurar(Repuesto repuesto, int cantidad, decimal precioVentaUnitario, bool descontado)
+            => new(repuesto, cantidad, precioVentaUnitario, descontado);
+
         public void Consumir()
         {
             if (Descontado) return;
